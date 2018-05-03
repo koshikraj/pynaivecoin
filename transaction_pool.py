@@ -4,60 +4,61 @@ from functools import reduce
 from transaction import validate_transaction
 
 
-transactionPool = []
+transaction_pool = []
+
 
 def get_transaction_pool():
-    return transactionPool
+    return transaction_pool
 
-def add_to_transaction_pool(tx, unspenttx_outs):
-    print('adding')
-    if not validate_transaction(tx, unspenttx_outs):
+
+def add_to_transaction_pool(tx, unspent_tx_outs):
+
+    if not validate_transaction(tx, unspent_tx_outs):
         print('Trying to add invalid tx to pool')
 
-    if not is_valid_tx_for_pool(tx, transactionPool):
+    if not is_valid_tx_for_pool(tx, transaction_pool):
         print('Trying to add invalid tx to pool')
 
     print('adding transaction to txPool')
-    transactionPool.append(tx)
+    transaction_pool.append(tx)
 
 
-def has_tx_in(txIn, unspenttx_outs):
+def has_tx_in(tx_in, unspent_tx_outs):
     try:
-        next(uTxO for uTxO in unspenttx_outs
-                         if uTxO.tx_out_id == txIn.tx_out_id and uTxO.tx_out_index == txIn.tx_out_index)
+        next(utxo for utxo in unspent_tx_outs
+                         if utxo.tx_out_id == tx_in.tx_out_id and utxo.tx_out_index == tx_in.tx_out_index)
         return True
     except StopIteration:
         return False
 
-def update_transaction_pool(unspenttx_outs):
 
-    global transactionPool
-    for tx in transactionPool[:]:
-        for txIn in tx.tx_ins:
-            if not has_tx_in(txIn, unspenttx_outs):
-                transactionPool.remove(tx)
+def update_transaction_pool(unspent_tx_outs):
+
+    global transaction_pool
+    for tx in transaction_pool[:]:
+        for tx_in in tx.tx_ins:
+            if not has_tx_in(tx_in, unspent_tx_outs):
+                transaction_pool.remove(tx)
                 print('removing the following transactions from txPool: %s' % json.dumps(tx))
                 break
 
 
-def get_tx_pool_ins(aTransactionPool):
-    return reduce(lambda a,b : a + b, map(lambda tx : tx.tx_ins, aTransactionPool), [])
+def get_tx_pool_ins(atransaction_pool):
+    return reduce(lambda a,b : a + b, map(lambda tx: tx.tx_ins, atransaction_pool), [])
 
 
-def is_valid_tx_for_pool(tx, aTtransactionPool):
-    txPoolIns = get_tx_pool_ins(aTtransactionPool)
-    print('pool')
-    print(tx.tx_ins)
+def is_valid_tx_for_pool(tx, atransaction_pool):
+    tx_pool_ins = get_tx_pool_ins(atransaction_pool)
 
-    def contains_tx_in(txIn):
+    def contains_tx_in(tx_in):
         try:
-            return next(txPoolIn for txPoolIn in txPoolIns if txIn.tx_out_index == txPoolIn.tx_out_index and txIn.tx_out_id == txPoolIn.tx_out_id)
+            return next(tx_pool_in for tx_pool_in in tx_pool_ins if tx_in.tx_out_index == tx_pool_in.tx_out_index and tx_in.tx_out_id == tx_pool_in.tx_out_id)
         except StopIteration:
-            False
+            return False
 
 
-    for txIn in tx.tx_ins:
-        if contains_tx_in(txIn):
+    for tx_in in tx.tx_ins:
+        if contains_tx_in(tx_in):
             print('txIn already found in the txPool')
             return False
 

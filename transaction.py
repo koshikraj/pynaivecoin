@@ -42,16 +42,16 @@ class Transaction:
 
 def get_transaction_id(transaction):
 
-    txInContent = reduce(lambda a, b : a + b, map(
+    tx_in_content = reduce(lambda a, b : a + b, map(
         (lambda tx_in: str(tx_in.tx_out_id) + str(tx_in.tx_out_index)), transaction.tx_ins), '')
 
-    txOutContent = reduce(lambda a, b : a + b, map(
+    tx_out_content = reduce(lambda a, b : a + b, map(
         (lambda tx_out: str(tx_out.address) + str(tx_out.amount)), transaction.tx_outs), '')
 
-    return SHA256.new((txInContent + txOutContent).encode()).hexdigest()
+    return SHA256.new((tx_in_content + tx_out_content).encode()).hexdigest()
 
 
-def validate_transaction(transaction, aUnspenttx_outs):
+def validate_transaction(transaction, a_unspent_tx_outs):
 
     if not is_valid_transaction_structure(transaction):
         return False
@@ -60,42 +60,42 @@ def validate_transaction(transaction, aUnspenttx_outs):
         print('invalid tx id: ' + transaction.id)
         return False
 
-    hasValidtx_ins = reduce((lambda a, b: a and b), map(lambda tx_in: validate_tx_in(tx_in, transaction, aUnspenttx_outs), transaction.tx_ins), True)
+    has_valid_tx_ins = reduce((lambda a, b: a and b), map(lambda tx_in: validate_tx_in(tx_in, transaction, a_unspent_tx_outs), transaction.tx_ins), True)
 
 
-    if not hasValidtx_ins:
+    if not has_valid_tx_ins:
         print('some of the tx_ins are invalid in tx: ' + transaction.id)
         return False
 
+    total_tx_in_values = reduce((lambda a, b : a + b),
+                             map(lambda tx_in : get_tx_in_amount(tx_in, a_unspent_tx_outs), transaction.tx_ins), 0)
 
-    totalTxInValues = reduce((lambda a, b : a + b), map(lambda tx_in : get_tx_in_amount(tx_in, aUnspenttx_outs), transaction.tx_ins), 0)
+    total_tx_out_values = reduce((lambda a, b : a + b),
+                              map(lambda tx_out : tx_out.amount, transaction.tx_outs), 0)
 
-    totalTxOutValues = reduce((lambda a, b : a + b), map(lambda tx_out : tx_out.amount, transaction.tx_outs), 0)
-
-
-    if totalTxOutValues != totalTxInValues:
-        print('totalTxOutValues !== totalTxInValues in tx: ' + transaction.id)
+    if total_tx_out_values != total_tx_in_values:
+        print('total_tx_out_values !== total_tx_in_values in tx: ' + transaction.id)
         return False
 
     return True
 
 
-def validate_block_transactions(aTransactions, aUnspenttx_outs, blockIndex):
+def validate_block_transactions(a_transactions, a_unspent_tx_outs, block_index):
 
-    coinbaseTx = aTransactions[0]
-    if not validate_coinbase_tx(coinbaseTx, blockIndex):
+    coinbaseTx = a_transactions[0]
+    if not validate_coinbase_tx(coinbaseTx, block_index):
         print('invalid coinbase transaction: ' + json.dumps(coinbaseTx))
         return False
 
-    # check for duplicate tx_ins. Each txIn can be included only once
-    tx_ins = reduce((lambda a, b : a + b), map(lambda tx : tx.tx_ins, aTransactions))
+    # check for duplicate tx_ins. Each tx_in can be included only once
+    tx_ins = reduce((lambda a, b : a + b), map(lambda tx : tx.tx_ins, a_transactions))
 
     if has_duplicates(tx_ins):
         return False
 
     # all but coinbase transactions
-    normalTransactions = aTransactions[1:]
-    return reduce((lambda a, b : a and b), map(lambda tx : validate_transaction(tx, aUnspenttx_outs), normalTransactions), True)
+    normalTransactions = a_transactions[1:]
+    return reduce((lambda a, b : a and b), map(lambda tx : validate_transaction(tx, a_unspent_tx_outs), normalTransactions), True)
 
 
 def has_duplicates(tx_ins):
@@ -105,16 +105,14 @@ def has_duplicates(tx_ins):
         grouped[tx_in.tx_out_id].append(tx_in.tx_out_index)
     for key, value in grouped.items():
         if len(value) != len(set(value)):
-            print('duplicate txIn: ' + key);
+            print('duplicate tx_in: ' + key)
             return True
     return  False
 
 
-
-
-def validate_coinbase_tx(transaction, blockIndex):
+def validate_coinbase_tx(transaction, block_index):
     if transaction is None:
-        print('the first transaction in the block must be coinbase transaction');
+        print('the first transaction in the block must be coinbase transaction')
         return False
 
     if get_transaction_id(transaction) != transaction.id:
@@ -122,11 +120,11 @@ def validate_coinbase_tx(transaction, blockIndex):
         return False
 
     if len(transaction.tx_ins) != 1:
-        print('one txIn must be specified in the coinbase transaction')
+        print('one tx_in must be specified in the coinbase transaction')
         return False
 
-    if transaction.tx_ins[0].tx_out_index != blockIndex:
-        print('the txIn signature in coinbase tx must be the block height')
+    if transaction.tx_ins[0].tx_out_index != block_index:
+        print('the tx_in signature in coinbase tx must be the block height')
         return False
 
     if len(transaction.tx_outs) != 1:
@@ -140,138 +138,139 @@ def validate_coinbase_tx(transaction, blockIndex):
     return True
 
 
-def validate_tx_in(txIn, transaction, aUnspenttx_outs):
+def validate_tx_in(tx_in, transaction, a_unspent_tx_outs):
 
-    referencedUTxOut = [uTxO for uTxO in aUnspenttx_outs if uTxO.tx_out_id == txIn.tx_out_id and uTxO.tx_out_index == txIn.tx_out_index][0]
-    if referencedUTxOut == []:
-        print('referenced txOut not found: ' + json.dumps(txIn))
+    referenced_utxo = [utxo for utxo in a_unspent_tx_outs if utxo.tx_out_id == tx_in.tx_out_id and utxo.tx_out_index == tx_in.tx_out_index][0]
+    if referenced_utxo == []:
+        print('referenced txOut not found: ' + json.dumps(tx_in))
         return False
 
-    address = referencedUTxOut.address
+    address = referenced_utxo.address
 
     vk = VerifyingKey.from_string(bytes.fromhex(address), curve=SECP256k1)
 
     try:
-        vk.verify(bytes.fromhex(txIn.signature),transaction.id.encode())
+        vk.verify(bytes.fromhex(tx_in.signature), transaction.id.encode())
 
     except Exception as e:
         # change the exception
-        print('invalid txIn signature: %s txId: %s address: %s' % (txIn.signature, transaction.id, referencedUTxOut.address))
+        print('invalid tx_in signature: %s txId: %s address: %s' % (tx_in.signature, transaction.id, referenced_utxo.address))
         return False
 
     return True
 
 
-def get_tx_in_amount(txIn, aUnspenttx_outs):
-    return find_unspent_tx_out(txIn.tx_out_id, txIn.tx_out_index, aUnspenttx_outs).amount
+def get_tx_in_amount(tx_in, a_unspent_tx_outs):
+    return find_unspent_tx_out(tx_in.tx_out_id, tx_in.tx_out_index, a_unspent_tx_outs).amount
 
 
-def find_unspent_tx_out(transactionId, index, aUnspenttx_outs):
+def find_unspent_tx_out(transaction_id, index, a_unspent_tx_outs):
     try:
-        return next(uTxO for uTxO in aUnspenttx_outs if uTxO.tx_out_id == transactionId and uTxO.tx_out_index == index)
+        return next(utxo for utxo in a_unspent_tx_outs if utxo.tx_out_id == transaction_id and utxo.tx_out_index == index)
     except Exception:
         return False
 
 
-def get_coinbase_transaction(address, blockIndex):
+def get_coinbase_transaction(address, block_index):
 
-    txIn = TxIn('', blockIndex, '')
-    t = Transaction([txIn], [TxOut(address, COINBASE_AMOUNT)])
+    tx_in = TxIn('', block_index, '')
+    t = Transaction([tx_in], [TxOut(address, COINBASE_AMOUNT)])
     return t
 
 
-def sign_tx_in(transaction, txInIndex,
-               privateKey, aUnspenttx_outs):
+def sign_tx_in(transaction, tx_in_index,
+               private_key, a_unspent_tx_outs):
 
-    txIn = transaction.tx_ins[txInIndex]
-    dataToSign = str(transaction.id)
-    referencedUnspentTxOut = find_unspent_tx_out(txIn.tx_out_id, txIn.tx_out_index, aUnspenttx_outs)
-    if referencedUnspentTxOut is None:
+    tx_in = transaction.tx_ins[tx_in_index]
+    data_to_sign = str(transaction.id)
+    referenced_utxo = find_unspent_tx_out(tx_in.tx_out_id, tx_in.tx_out_index, a_unspent_tx_outs)
+    if referenced_utxo is None:
         print('could not find referenced txOut')
-        # throw Error();
+        # throw Error()
 
-    referencedAddress = referencedUnspentTxOut.address
+    referenced_address = referenced_utxo.address
 
-    if get_public_key(privateKey) != referencedAddress:
+    if get_public_key(private_key) != referenced_address:
         print('trying to sign an input with private' +
-              ' key that does not match the address that is referenced in txIn')
-        # throw Error();
+              ' key that does not match the address that is referenced in tx_in')
+        # throw Error()
 
-    # key = ec.keyFromPrivate(privateKey, 'hex')
-    sk = SigningKey.from_string(privateKey, curve=SECP256k1)
-    signature = binascii.b2a_hex(sk.sign(dataToSign.encode())).decode()
+    # key = ec.keyFromPrivate(private_key, 'hex')
+    sk = SigningKey.from_string(private_key, curve=SECP256k1)
+    signature = binascii.b2a_hex(sk.sign(data_to_sign.encode())).decode()
     return signature
 
 
-def update_unspent_tx_outs(aTransactions, aUnspenttx_outs):
+def update_unspent_tx_outs(a_transactions, a_unspent_tx_outs):
 
     def find_utxos(t):
         utxos = []
-        for index, txOut in enumerate(t.tx_outs):
-            utxos.append(UnspentTxOut(t.id, index, txOut.address, txOut.amount))
+        for index, tx_out in enumerate(t.tx_outs):
+            utxos.append(UnspentTxOut(t.id, index, tx_out.address, tx_out.amount))
         return utxos
 
-    newUnspenttx_outs = reduce((lambda a, b: a + b), map(lambda t: find_utxos(t), aTransactions), [])
+    new_utxos = reduce((lambda a, b: a + b), map(lambda t: find_utxos(t), a_transactions), [])
 
 
-    consumedtx_outs = list(map(lambda txin: UnspentTxOut(txin.tx_out_id, txin.tx_out_index, '', 0), reduce((lambda a, b : a + b), map(lambda t : t.tx_ins, aTransactions), [])))
+    consumed_utxos = list(map(lambda txin: UnspentTxOut(txin.tx_out_id, txin.tx_out_index, '', 0),
+                              reduce((lambda a, b : a + b), map(lambda t: t.tx_ins, a_transactions), [])))
 
-    resultingUnspenttx_outs = list(filter(lambda uTxo : not find_unspent_tx_out(uTxo.tx_out_id, uTxo.tx_out_index, consumedtx_outs), aUnspenttx_outs)) + newUnspenttx_outs
+    resulting_utxos = list(filter(lambda utxo : not find_unspent_tx_out(utxo.tx_out_id, utxo.tx_out_index, consumed_utxos), a_unspent_tx_outs)) + new_utxos
 
-    return resultingUnspenttx_outs
+    return resulting_utxos
 
 
-def processTransactions(aTransactions, aUnspenttx_outs, blockIndex):
+def process_transactions(a_transactions, a_unspent_tx_outs, block_index):
 
-    if not validate_block_transactions(aTransactions, aUnspenttx_outs, blockIndex):
+    if not validate_block_transactions(a_transactions, a_unspent_tx_outs, block_index):
         print('invalid block transactions')
         return None
-    return update_unspent_tx_outs(aTransactions, aUnspenttx_outs)
+    return update_unspent_tx_outs(a_transactions, a_unspent_tx_outs)
 
 
 # def toHexString = (byteArray): string => {
 # return Array.from(byteArray, (byte: any) => {
-# return ('0' + (byte & 0xFF).toString(16)).slice(-2);
-# }).join('');
-# };
+# return ('0' + (byte & 0xFF).toString(16)).slice(-2)
+# }).join('')
+# }
 
-def get_public_key(aPrivateKey):
+def get_public_key(private_key):
 
-    sk = SigningKey.from_string(aPrivateKey
+    sk = SigningKey.from_string(private_key
                                 , curve=SECP256k1)
     vk = sk.get_verifying_key()
     return binascii.b2a_hex(vk.to_string()).decode()
 
 
-def is_valid_tx_in_structure(txIn: TxIn):
-    if txIn is None:
-        print('txIn is null')
+def is_valid_tx_in_structure(tx_in):
+    if tx_in is None:
+        print('tx_in is null')
         return False
-    elif type(txIn.signature) is not str:
-        print('invalid signature type in txIn')
+    elif type(tx_in.signature) is not str:
+        print('invalid signature type in tx_in')
         return False
-    elif type(txIn.tx_out_id) is not str:
-        print('invalid tx_out_id type in txIn')
+    elif type(tx_in.tx_out_id) is not str:
+        print('invalid tx_out_id type in tx_in')
         return False
-    elif type(txIn.tx_out_index) is not int:
-        print('invalid tx_out_index type in txIn')
+    elif type(tx_in.tx_out_index) is not int:
+        print('invalid tx_out_index type in tx_in')
         return False
     else:
         return True
 
 
-def is_valid_tx_out_structure(txOut):
-    if txOut is None:
-        print('txOut is null')
+def is_valid_tx_out_structure(tx_out):
+    if tx_out is None:
+        print('tx_out is null')
         return False
-    elif type(txOut.address) != str:
-        print('invalid address type in txOut')
+    elif type(tx_out.address) != str:
+        print('invalid address type in tx_out')
         return False
-    elif not is_valid_address(txOut.address):
+    elif not is_valid_address(tx_out.address):
         print('invalid TxOut address')
         return False
-    elif type(txOut.amount) != int:
-        print('invalid amount type in txOut')
+    elif type(tx_out.amount) != int:
+        print('invalid amount type in tx_out')
         return False
     else:
         return True
@@ -280,7 +279,7 @@ def is_valid_tx_out_structure(txOut):
 def is_valid_transaction_structure(transaction):
 
     if type(transaction.id) != str:
-        print('transactionId missing')
+        print('transaction_id missing')
         return False
 
     if not isinstance(transaction.tx_ins, list):
@@ -290,7 +289,6 @@ def is_valid_transaction_structure(transaction):
     if (not reduce((lambda a, b : a and b),
                    map(lambda tx_in : is_valid_tx_in_structure(tx_in), transaction.tx_ins), True)):
 
-
         return False
 
     if not isinstance(transaction.tx_outs, list):
@@ -298,8 +296,8 @@ def is_valid_transaction_structure(transaction):
         print('invalid tx_ins type in transaction')
         return False
 
-    if (not reduce((lambda a, b : a and b),
-                   map(lambda tx_out : is_valid_tx_out_structure(tx_out), transaction.tx_outs), True)):
+    if (not reduce((lambda a, b: a and b),
+                   map(lambda tx_out: is_valid_tx_out_structure(tx_out), transaction.tx_outs), True)):
 
         return False
 

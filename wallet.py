@@ -9,19 +9,18 @@ from transaction import Transaction, TxOut, TxIn, get_public_key, get_transactio
 
 
 try:
-    privateKeyLocation = os.environ['PRIVATE_KEY']
+    PRIV_KEY_LOC = os.environ['PRIVATE_KEY']
 except KeyError as e:
-    privateKeyLocation = 'node/wallet/private_key'
+    PRIV_KEY_LOC = 'node/wallet/private_key'
 
 
 def get_private_from_wallet():
 
-    # sk = SigningKey.from_string(binascii.a2b_hex(open(privateKeyLocation).read()), curve=SECP256k1)
-
-    return binascii.a2b_hex(open(privateKeyLocation).read())
+    return binascii.a2b_hex(open(PRIV_KEY_LOC).read())
 
 
 def get_public_from_wallet():
+
     sk = SigningKey.from_string(get_private_from_wallet(), curve=SECP256k1)
     vk = sk.get_verifying_key()
     return binascii.b2a_hex(vk.to_string()).decode()
@@ -30,99 +29,102 @@ def get_public_from_wallet():
 def generate_private_key():
 
     sk = SigningKey.generate(curve=SECP256k1)
-    with open(privateKeyLocation, 'wt') as file_obj:
+    with open(PRIV_KEY_LOC, 'wt') as file_obj:
         file_obj.write(binascii.b2a_hex(sk.to_string()).decode())
 
 
 def init_wallet():
 
     # let's not override existing private keys
-    if os.path.isfile(privateKeyLocation):
+    if os.path.isfile(PRIV_KEY_LOC):
         return
 
     generate_private_key()
-    print('new wallet with private key created at : %s' % privateKeyLocation)
+    print('new wallet with private key created at : %s' % PRIV_KEY_LOC)
+
 
 def delete_wallet():
-    if os.path.isfile(privateKeyLocation):
-        os.remove(privateKeyLocation)
+    if os.path.isfile(PRIV_KEY_LOC):
+        os.remove(PRIV_KEY_LOC)
 
 
-def get_balance(address, unspenttx_outs):
+def get_balance(address, unspent_tx_outs):
 
-    return sum(map(lambda utxo : utxo.amount, find_unspent_tx_outs(address, unspenttx_outs)))
-
-
-def find_unspent_tx_outs(ownerAddress, unspenttx_outs):
-
-    return list(filter(lambda utxo : utxo.address == ownerAddress, unspenttx_outs))
+    return sum(map(lambda utxo : utxo.amount, find_unspent_tx_outs(address, unspent_tx_outs)))
 
 
-def find_tx_outs_for_amount(amount, myUnspenttx_outs):
-    currentAmount = 0
-    includedUnspenttx_outs = []
-    for myUnspentTxOut in myUnspenttx_outs:
-        includedUnspenttx_outs.append(myUnspentTxOut)
-        currentAmount = currentAmount + myUnspentTxOut.amount
-        if currentAmount >= amount:
-            leftOverAmount = currentAmount - amount
-            return includedUnspenttx_outs, leftOverAmount
+def find_unspent_tx_outs(owner_address, unspent_tx_outs):
 
-    eMsg = 'Cannot create transaction from the available unspent transaction outputs.' + \
-             ' Required amount:' + str(amount) + '. Available unspenttx_outs:' + json.dumps(myUnspenttx_outs)
-    print(eMsg)
+    return list(filter(lambda utxo: utxo.address == owner_address, unspent_tx_outs))
+
+
+def find_tx_outs_for_amount(amount, my_unspent_tx_outs):
+    current_amount = 0
+    incl_unspent_tx_outs = []
+    for my_unspent_tx_out in my_unspent_tx_outs:
+        incl_unspent_tx_outs.append(my_unspent_tx_out)
+        current_amount = current_amount + my_unspent_tx_out.amount
+        if current_amount >= amount:
+            left_over_amount = current_amount - amount
+            return incl_unspent_tx_outs, left_over_amount
+
+    e_msg = 'Cannot create transaction from the available unspent transaction outputs.' \
+            ' Required amount:' + str(amount) + '. Available unspent_tx_outs:' + json.dumps(my_unspent_tx_outs)
+    print(e_msg)
     return None, None
 
 
-def create_tx_outs(receiverAddress, myAddress, amount, leftOverAmount):
-    txOut1 = TxOut(receiverAddress, amount)
-    if leftOverAmount == 0:
-        return [txOut1]
+def create_tx_outs(receiver_address, my_address, amount, left_over_amount):
+    tx_out = TxOut(receiver_address, amount)
+    if left_over_amount == 0:
+        return [tx_out]
     else:
-        leftOverTx = TxOut(myAddress, leftOverAmount)
-        return [txOut1, leftOverTx]
+        left_over_tx = TxOut(my_address, left_over_amount)
+        return [tx_out, left_over_tx]
 
 
-def filter_tx_pool_txs(unspenttx_outs, transactionPool):
-    tx_ins = reduce((lambda a, b: a + b), map(lambda tx: tx.tx_ins, transactionPool), [])
+def filter_tx_pool_txs(unspent_tx_outs, transaction_pool):
+    tx_ins = reduce((lambda a, b: a + b), map(lambda tx: tx.tx_ins, transaction_pool), [])
 
-    for unspentTxOut in unspenttx_outs[:]:
+    for unspent_tx_out in unspent_tx_outs[:]:
         try:
-            txIn = next(aTxIn for aTxIn in tx_ins if aTxIn.tx_out_index == unspentTxOut.tx_out_index and aTxIn.tx_out_id == unspentTxOut.tx_out_id)
-            unspenttx_outs.remove(unspentTxOut)
+            next(a_tx_in for a_tx_in in tx_ins if a_tx_in.tx_out_index == unspent_tx_out.tx_out_index
+                 and a_tx_in.tx_out_id == unspent_tx_out.tx_out_id)
+            unspent_tx_outs.remove(unspent_tx_out)
         except StopIteration as e:
             pass
 
-    return unspenttx_outs
+    return unspent_tx_outs
 
-def create_transaction(receiverAddress, amount, privateKey,
-                       unspenttx_outs, txPool):
 
-    print('txPool has %d transactions', len(txPool))
+def create_transaction(receiver_address, amount, private_key,
+                       unspent_tx_outs, tx_pool):
 
-    myAddress = get_public_key(privateKey)
+    print('txPool has %d transactions', len(tx_pool))
 
-    myUnspenttx_outsA = list(filter(lambda utxo: utxo.address == myAddress, unspenttx_outs))
+    my_address = get_public_key(private_key)
 
-    myUnspenttx_outs = filter_tx_pool_txs(myUnspenttx_outsA, txPool)
+    my_unspent_tx_outs_a = list(filter(lambda utxo: utxo.address == my_address, unspent_tx_outs))
+
+    my_unspent_tx_outs = filter_tx_pool_txs(my_unspent_tx_outs_a, tx_pool)
 
     # filter from unspentOutputs such inputs that are referenced in pool
-    includedUnspenttx_outs, leftOverAmount = find_tx_outs_for_amount(amount, myUnspenttx_outs)
-    if not includedUnspenttx_outs:
+    incl_unspent_tx_outs, left_over_amount = find_tx_outs_for_amount(amount, my_unspent_tx_outs)
+    if not incl_unspent_tx_outs:
         return None
 
-    def to_unsigned_tx_in(unspentTxOut):
+    def to_unsigned_tx_in(unspent_tx_out):
 
-        txIn = TxIn(unspentTxOut.tx_out_id, unspentTxOut.tx_out_index, '')
-        return txIn
+        tx_in = TxIn(unspent_tx_out.tx_out_id, unspent_tx_out.tx_out_index, '')
+        return tx_in
 
-    unsignedtx_ins = list(map(to_unsigned_tx_in, includedUnspenttx_outs))
+    unsigned_tx_ins = list(map(to_unsigned_tx_in, incl_unspent_tx_outs))
 
-    tx = Transaction(unsignedtx_ins,
-                     create_tx_outs(receiverAddress, myAddress, amount, leftOverAmount))
+    tx = Transaction(unsigned_tx_ins,
+                     create_tx_outs(receiver_address, my_address, amount, left_over_amount))
 
     def sign_transaction(tx, index):
-        tx.tx_ins[index].signature = sign_tx_in(tx, index, privateKey, unspenttx_outs)
+        tx.tx_ins[index].signature = sign_tx_in(tx, index, private_key, unspent_tx_outs)
 
     for index, txIn in enumerate(tx.tx_ins):
         sign_transaction(tx, index)
