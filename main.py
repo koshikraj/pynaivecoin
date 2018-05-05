@@ -2,6 +2,7 @@ import json as JSON
 import os
 import websockets
 
+from functools import reduce
 from sanic import Sanic
 from sanic.response import json
 from websockets.exceptions import ConnectionClosed
@@ -9,7 +10,7 @@ from websockets.exceptions import ConnectionClosed
 from blockchain import Block, Blockchain
 from utils.logger import logger
 from wallet import init_wallet, get_public_from_wallet
-from transaction_pool import add_to_transaction_pool
+from transaction_pool import add_to_transaction_pool, get_transaction_pool
 # from transaction import getU
 
 
@@ -22,7 +23,7 @@ RESPONSE_TRANSACTION_POOL = 4
 try:
     port = int(os.environ['PORT'])
 except KeyError as e:
-    port = 3002
+    port = 3001
 
 try:
     initialPeers = os.environ['PEERS'].split(",")
@@ -38,6 +39,7 @@ class Server(object):
         self.blockchain = Blockchain()
         self.sockets = []
         self.app.add_route(self.blocks, '/blocks', methods=['GET'])
+        self.app.add_route(self.block, '/block/<hash>', methods=['GET'])
         self.app.add_route(self.mine_block, '/mineBlock', methods=['POST'])
         self.app.add_route(self.peers, '/peers', methods=['GET'])
         self.app.add_route(self.transaction, '/transaction/<id>', methods=['GET'])
@@ -53,7 +55,13 @@ class Server(object):
         self.app.add_websocket_route(self.p2p_handler, '/')
 
     async def transaction(self, request, id):
-        return json({'data': id})
+        try:
+            matched_tx = next(tx for tx in reduce(lambda a, b: a + b, map(lambda block: block.data, self.blockchain.blocks[1:])) if tx.id == id)
+        except StopIteration as e:
+            return json({'status': False,
+                         'message': "couldn't find the transaction"})
+
+        return json({'data': matched_tx})
 
     async def balance(self, request):
         return json({'balance': self.blockchain.get_account_balance()})
@@ -63,6 +71,11 @@ class Server(object):
 
     async def blocks(self, request):
         return json(self.blockchain.blocks)
+
+    async def block(self, request, hash):
+        matched_block = next(block for block in self.blockchain.blocks if block.hash == hash)
+        return json(matched_block)
+
 
     async def mine_transaction(self, request):
 
@@ -82,12 +95,14 @@ class Server(object):
     async def mine_block(self, request):
 
         try:
-            newBlock = self.blockchain.generate_next_block(request.json["data"])
+            if self.blockchain.construct_next_block():
+                response = {'status': True}
+            else:
+                response = {'status': False, 'message': 'failed to create the transaction'}
         except KeyError as e:
-            return json({"status": False, "message": "pass value in data key"})
-        self.blockchain.add_block(newBlock)
-        await self.broadcast(self.response_latest_msg())
-        return json(newBlock)
+            response = {"status": False, "message": "pass value in data key"}
+        # await self.broadcast(self.response_latest_msg())
+        return json(response)
 
     async def peers(self, request):
         peers = map(lambda x: "{}:{}".format(x.remote_address[0], x.remote_address[1])
@@ -166,7 +181,7 @@ class Server(object):
 
     def response_transaction_pool_msg(self):
         return {
-            'data': JSON.dumps(self.getTransactionPool())
+            'data': JSON.dumps(get_transaction_pool())
         }
 
     async def handle_blockchain_response(self, ws, message):
@@ -217,7 +232,7 @@ class Server(object):
 
         return {'type': QUERY_ALL}
 
-    def query_transactionpool_msg(self):
+    def query_transaction_pool_msg(self):
         return {
             'type': QUERY_TRANSACTION_POOL,
             'data': None
