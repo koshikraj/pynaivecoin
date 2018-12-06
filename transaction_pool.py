@@ -26,14 +26,13 @@ def add_to_transaction_pool(tx, unspent_tx_outs):
 def has_tx_in(tx_in, unspent_tx_outs):
     try:
         next(utxo for utxo in unspent_tx_outs
-                         if utxo.tx_out_id == tx_in.tx_out_id and utxo.tx_out_index == tx_in.tx_out_index)
+             if utxo.tx_out_id == tx_in.tx_out_id and utxo.tx_out_index == tx_in.tx_out_index)
         return True
     except StopIteration:
         return False
 
 
 def update_transaction_pool(unspent_tx_outs):
-
     global transaction_pool
     for tx in transaction_pool[:]:
         for tx_in in tx.tx_ins:
